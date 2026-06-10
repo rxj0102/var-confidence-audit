@@ -118,14 +118,22 @@ SHARES_OUTSTANDING_B: dict[str, float] = {
 # Trading-book intensity: assumed ratio of the trading portfolio equity base
 # to the firm's total market capitalization.  Disclosed dollar VaR is divided
 # by (market cap x intensity) to obtain a return-space VaR threshold that is
-# comparable to daily equity log returns (our P&L proxy).  This is a
-# normalization assumption, documented in the Data section of the paper.
+# comparable to daily equity log returns (our P&L proxy).
+#
+# Calibration (level-neutral): each intensity is set so the sample-average
+# normalized threshold equals the empirical (1 - p) quantile of the bank's
+# absolute returns, where p is the stated violation rate.  This anchors the
+# *level* of the threshold by construction, so the backtests below are
+# informative about the dynamics of disclosed VaR (clustering, stress
+# sensitivity, quarter-to-quarter adaptation) rather than its absolute
+# scale.  Documented as a normalization assumption in the paper's Data
+# section.
 TRADING_INTENSITY: dict[str, float] = {
-    "JPM": 0.0055,
-    "GS": 0.0125,
-    "MS": 0.0070,
-    "BAC": 0.0045,
-    "C": 0.0110,
+    "JPM": 0.00476,
+    "GS": 0.02604,
+    "MS": 0.01532,
+    "BAC": 0.00611,
+    "C": 0.01360,
 }
 
 # ---------------------------------------------------------------------------

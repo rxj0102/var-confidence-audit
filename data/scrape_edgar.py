@@ -70,6 +70,9 @@ AVG_VAR_TEXT_RE = re.compile(
 NUMBER_RE = re.compile(r"^\(?\$?\s*([\d,]+(?:\.\d+)?)\s*\)?$")
 VAR_TABLE_HINT_RE = re.compile(r"(value[- ]at[- ]risk|\bVaR\b)", re.I)
 TOTAL_ROW_RE = re.compile(r"(?i)\b(total|aggregate|firm[- ]?wide|trading)\b")
+# Citigroup-style layout: rows = risk factors, columns = period-end value
+# followed by the quarterly average (no high/low columns).
+CITI_TOTAL_ROW_RE = re.compile(r"(?i)total\s+trading\s+va?r")
 BILLIONS_HINT_RE = re.compile(r"in\s+billions", re.I)
 
 # Published-disclosure baseline of average one-day trading VaR ($mm) by year,
@@ -272,9 +275,27 @@ def _extract_from_tables(soup: BeautifulSoup) -> tuple[float | None, float | Non
         lowered = text.lower()
         has_avg = "average" in lowered or "avg" in lowered
         has_range = any(k in lowered for k in ("high", "low", "min", "max"))
-        if not (has_avg and has_range):
+        if not has_avg:
             continue
         scale = 1000.0 if BILLIONS_HINT_RE.search(text) else 1.0
+        if not has_range:
+            # Citi-style table: take the first "Total trading VaR" row;
+            # column order is (period-end value, quarterly average, ...),
+            # so the average is the second numeric cell.
+            for row in table.find_all("tr"):
+                cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
+                cells = [c for c in cells if c]
+                if not cells or not CITI_TOTAL_ROW_RE.search(cells[0]):
+                    continue
+                values = _parse_numbers(cells[1:])
+                values = [v for v in values if v < 1900 or v > 2100]
+                if not values:
+                    continue
+                avg = (values[1] if len(values) > 1 else values[0]) * scale
+                if 1.0 <= avg <= 2000.0 and (best is None or avg > best[0]):
+                    best = (avg, None, None)
+                break
+            continue
         for row in table.find_all("tr"):
             cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
             cells = [c for c in cells if c]
