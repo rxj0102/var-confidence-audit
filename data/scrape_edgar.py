@@ -65,7 +65,9 @@ AVG_VAR_TEXT_RE = re.compile(
     r"(?:\s+\w+){0,6}?\s+\$?\s*([\d,]+(?:\.\d+)?)\s*(million|billion)?",
     re.I,
 )
-NUMBER_RE = re.compile(r"\(?\$?\s*([\d,]+(?:\.\d+)?)\s*\)?")
+# Only cells that are purely a (possibly $-prefixed, parenthesized) number
+# count as data cells; this keeps dates like "March 31, 2024" out.
+NUMBER_RE = re.compile(r"^\(?\$?\s*([\d,]+(?:\.\d+)?)\s*\)?$")
 VAR_TABLE_HINT_RE = re.compile(r"(value[- ]at[- ]risk|\bVaR\b)", re.I)
 TOTAL_ROW_RE = re.compile(r"(?i)\b(total|aggregate|firm[- ]?wide|trading)\b")
 BILLIONS_HINT_RE = re.compile(r"in\s+billions", re.I)
@@ -146,8 +148,27 @@ class EdgarClient:
         return None
 
 
+def _filing_block_to_frame(block: dict) -> pd.DataFrame:
+    """Convert one submissions-API filing block (dict of lists) to a frame."""
+    return pd.DataFrame(
+        {
+            "form": block.get("form", []),
+            "report_date": block.get("reportDate", []),
+            "accession": block.get("accessionNumber", []),
+            "primary_doc": block.get("primaryDocument", []),
+        }
+    )
+
+
 def list_filings(client: EdgarClient, ticker: str) -> pd.DataFrame:
     """List 10-Q/10-K filings for a bank from the submissions API.
+
+    The ``recent`` block of ``CIK{cik}.json`` only covers the latest ~1,000
+    filings, which for prolific prospectus filers (e.g. JPM) reaches back
+    less than a year.  Older filings are stored in paginated archive files
+    listed under ``filings.files``; every page whose filing-date range
+    overlaps the sample window (padded so a fiscal-year 10-K filed the
+    following February is captured) is fetched as well.
 
     Args:
         client: Shared :class:`EdgarClient`.
@@ -162,16 +183,25 @@ def list_filings(client: EdgarClient, ticker: str) -> pd.DataFrame:
     if resp is None:
         return pd.DataFrame(columns=["form", "report_date", "accession", "primary_doc"])
 
-    recent = resp.json().get("filings", {}).get("recent", {})
-    df = pd.DataFrame(
-        {
-            "form": recent.get("form", []),
-            "report_date": recent.get("reportDate", []),
-            "accession": recent.get("accessionNumber", []),
-            "primary_doc": recent.get("primaryDocument", []),
-        }
-    )
-    df = df[df["form"].isin(["10-Q", "10-K"])].copy()
+    payload = resp.json()
+    blocks = [_filing_block_to_frame(payload.get("filings", {}).get("recent", {}))]
+
+    window_start = pd.Timestamp(config.START_DATE)
+    # 10-Ks for the final fiscal year are filed up to ~4 months after
+    # period end, so extend the filing-date overlap window accordingly.
+    window_end = pd.Timestamp(config.END_DATE) + pd.Timedelta(days=120)
+    for page in payload.get("filings", {}).get("files", []):
+        page_from = pd.Timestamp(page.get("filingFrom", "1900-01-01"))
+        page_to = pd.Timestamp(page.get("filingTo", "2100-01-01"))
+        if page_to < window_start or page_from > window_end:
+            continue
+        page_resp = client.get(f"https://data.sec.gov/submissions/{page['name']}")
+        if page_resp is None:
+            continue
+        blocks.append(_filing_block_to_frame(page_resp.json()))
+
+    df = pd.concat(blocks, ignore_index=True)
+    df = df[df["form"].isin(["10-Q", "10-K"])].drop_duplicates(subset="accession").copy()
     df["report_date"] = pd.to_datetime(df["report_date"], errors="coerce")
     df = df.dropna(subset=["report_date"])
     start = pd.Timestamp(config.START_DATE)
@@ -218,7 +248,7 @@ def _parse_numbers(cells: list[str]) -> list[float]:
     """Extract positive floats from a list of table-cell strings."""
     values: list[float] = []
     for cell in cells:
-        m = NUMBER_RE.search(cell)
+        m = NUMBER_RE.match(cell.strip())
         if m:
             try:
                 values.append(float(m.group(1).replace(",", "")))
@@ -234,20 +264,24 @@ def _extract_from_tables(soup: BeautifulSoup) -> tuple[float | None, float | Non
     header, then reads the numeric cells of the total/aggregate row.
     Amounts in tables flagged "in billions" are converted to millions.
     """
+    best: tuple[float, float | None, float | None] | None = None
     for table in soup.find_all("table"):
         text = table.get_text(" ", strip=True)
         if not VAR_TABLE_HINT_RE.search(text):
             continue
         lowered = text.lower()
-        if "average" not in lowered or ("high" not in lowered and "low" not in lowered):
+        has_avg = "average" in lowered or "avg" in lowered
+        has_range = any(k in lowered for k in ("high", "low", "min", "max"))
+        if not (has_avg and has_range):
             continue
         scale = 1000.0 if BILLIONS_HINT_RE.search(text) else 1.0
         for row in table.find_all("tr"):
             cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
+            cells = [c for c in cells if c]
             if not cells or not TOTAL_ROW_RE.search(cells[0]):
                 continue
             values = _parse_numbers(cells[1:])
-            # Drop year labels that sneak into header-ish rows.
+            # Drop stray year labels from header-ish rows.
             values = [v for v in values if v < 1900 or v > 2100]
             if not values:
                 continue
@@ -257,10 +291,13 @@ def _extract_from_tables(soup: BeautifulSoup) -> tuple[float | None, float | Non
             if high is not None and low is not None and low > high:
                 high, low = low, high
             # Sanity bounds: one-day trading VaR for these banks is
-            # O($10mm-$500mm); reject obvious mis-parses.
-            if 1.0 <= avg <= 2000.0:
-                return avg, high, low
-    return None, None, None
+            # O($10mm-$500mm); reject obvious mis-parses.  When several
+            # total-style rows match (e.g. sub-aggregates before the firm
+            # total), keep the largest average - the grand total dominates
+            # its components.
+            if 1.0 <= avg <= 2000.0 and (best is None or avg > best[0]):
+                best = (avg, high, low)
+    return best if best is not None else (None, None, None)
 
 
 def _extract_from_text(text: str) -> float | None:
