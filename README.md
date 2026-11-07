@@ -146,3 +146,11 @@ interpolated and flagged (`interpolated_flag`).
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Methodology fixes and testing
+
+- **Independence test on subsamples.** The stress/calm Christoffersen tests previously treated violations on non-adjacent trading days as consecutive. Transitions are now counted only between consecutive trading days.
+- **Model backtests use loss-side violations** (`return < -VaR`). Counting `|return| > VaR` roughly doubles the violation rate of a correctly calibrated 99% model, so every reimplemented model used to look miscalibrated under Kupiec. The disclosed-VaR audit keeps its conservative absolute-return definition for the headline numbers; a `loss_violation` column and a `disclosed_loss_side` row in `model_comparison.csv` give the like-for-like version.
+- **Missing VIX** is no longer silently labelled "high" regime.
+- `pytest` covers Kupiec/Christoffersen statistics, the adjacency rule, VaR forecast timing (no look-ahead) and the violation definitions.
+- Regenerate `data/processed/*` and the paper (`python backtest/var_models.py`, `python paper/generate_paper.py`) to refresh tables produced under the old definitions.

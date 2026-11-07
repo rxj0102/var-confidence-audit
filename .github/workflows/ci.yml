@@ -1,0 +1,21 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # Tests only need the numerical stack (not streamlit/jupyter/reportlab).
+      - run: pip install numpy pandas scipy matplotlib seaborn python-dotenv pytest
+      - run: python -m pytest -q
