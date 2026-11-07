@@ -68,15 +68,18 @@ def load_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.DataFrame]:
     return returns, prices, vix, disclosures
 
 
-def classify_vix_regime(vix_level: float) -> str:
+def classify_vix_regime(vix_level: float) -> str | float:
     """Map a VIX level to its configured regime label.
 
     Args:
         vix_level: VIX closing level.
 
     Returns:
-        Regime label (``low`` / ``medium`` / ``high``).
+        Regime label (``low`` / ``medium`` / ``high``), or NaN when the VIX
+        level is missing.
     """
+    if pd.isna(vix_level):
+        return np.nan  # unknown regime; never silently classify as "high"
     for label, (lo, hi) in config.VIX_REGIMES.items():
         if lo < vix_level <= hi or (label == "low" and vix_level <= hi):
             return label
@@ -131,6 +134,10 @@ def build_daily_panel(
             }
         ).dropna(subset=["threshold_pct", "log_return"])
         df["violation"] = (df["log_return"].abs() > df["threshold_pct"]).astype(int)
+        # Loss-side (one-sided) definition: a VaR violation is a *loss*
+        # exceeding VaR.  Reported alongside the conservative absolute-return
+        # definition used in the headline tests.
+        df["loss_violation"] = (df["log_return"] < -df["threshold_pct"]).astype(int)
         frames.append(df)
 
     panel = pd.concat(frames, ignore_index=True)

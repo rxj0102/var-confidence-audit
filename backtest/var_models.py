@@ -185,13 +185,27 @@ def compute_model_panel(
     return panel
 
 
+def violation_flags(returns: pd.Series, var_pct: pd.Series) -> pd.Series:
+    """Loss-side violation indicator: the day's *loss* exceeds the VaR.
+
+    VaR (including every model above) is a one-sided loss quantile, so a
+    violation is ``return < -VaR``.  Using absolute returns would also count
+    large gains and roughly double the violation rate of a correctly
+    calibrated model, making every model look miscalibrated under Kupiec.
+    """
+    return (returns < -var_pct).astype(int)
+
+
 def evaluate_models(panel: pd.DataFrame, disclosed: pd.DataFrame) -> pd.DataFrame:
     """Compare violation rates of each model and the disclosed VaR.
 
-    A model violation is a day where the absolute return exceeds the
-    model's VaR estimate (matching the disclosed-VaR audit definition).
-    Kupiec's POF test is run on every series at the 1% stated rate for
-    models and at each bank's stated rate for the disclosure.
+    A model violation is a day where the *loss* exceeds the model's VaR
+    estimate (``return < -VaR``).  The ``disclosed`` row keeps the audit's
+    conservative absolute-return definition; when the panel carries the
+    loss-side flag a ``disclosed_loss_side`` row is added for a like-for-like
+    comparison with the models.  Kupiec's POF test is run on every series at
+    the 1% stated rate for models and at each bank's stated rate for the
+    disclosure.
 
     Args:
         panel: Model VaR panel from :func:`compute_model_panel`.
@@ -204,7 +218,7 @@ def evaluate_models(panel: pd.DataFrame, disclosed: pd.DataFrame) -> pd.DataFram
     for ticker in config.BANKS:
         sub = panel[panel["bank"] == ticker].dropna(subset=MODELS)
         for model in MODELS:
-            viol = (sub["log_return"].abs() > sub[model]).astype(int)
+            viol = violation_flags(sub["log_return"], sub[model])
             t, t1 = len(viol), int(viol.sum())
             lr, pval = kupiec_pof(t1, t, ALPHA)
             rows.append(
@@ -238,6 +252,22 @@ def evaluate_models(panel: pd.DataFrame, disclosed: pd.DataFrame) -> pd.DataFram
                 "kupiec_reject_5pct": bool(pval < 0.05) if np.isfinite(pval) else None,
             }
         )
+        if "loss_violation" in disc.columns and len(disc):
+            t1 = int(disc["loss_violation"].sum())
+            lr, pval = kupiec_pof(t1, t, p)
+            rows.append(
+                {
+                    "bank": ticker,
+                    "model": "disclosed_loss_side",
+                    "stated_rate": p,
+                    "n_obs": t,
+                    "n_violations": t1,
+                    "violation_rate": t1 / t if t else np.nan,
+                    "kupiec_lr": lr,
+                    "kupiec_p": pval,
+                    "kupiec_reject_5pct": bool(pval < 0.05) if np.isfinite(pval) else None,
+                }
+            )
     result = pd.DataFrame(rows)
     for _, row in result.iterrows():
         logger.info(
@@ -303,6 +333,7 @@ def plot_violation_comparison(comparison: pd.DataFrame) -> Path:
         Path of the saved figure.
     """
     order = ["disclosed"] + MODELS
+    width_slots = len(order)
     grid = comparison.pivot(index="bank", columns="model", values="violation_rate")
     grid = grid.reindex(index=list(config.BANKS), columns=order) * 100
 
@@ -310,7 +341,7 @@ def plot_violation_comparison(comparison: pd.DataFrame) -> Path:
     width = 0.15
     fig, ax = plt.subplots(figsize=(11, 5.5))
     for i, model in enumerate(order):
-        ax.bar(x + (i - 2) * width, grid[model], width, label=model.replace("_", " "))
+        ax.bar(x + (i - (width_slots - 1) / 2) * width, grid[model], width, label=model.replace("_", " "))
     ax.axhline(1.0, color="black", ls="--", lw=1, label="1% target (99% VaR)")
     ax.set_xticks(x, grid.index)
     ax.set_ylabel("Violation rate (%)")

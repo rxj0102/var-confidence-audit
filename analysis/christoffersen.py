@@ -71,11 +71,45 @@ def lr_uc(violations: np.ndarray, p: float) -> tuple[float, float]:
         return np.nan, np.nan
     log_null = _xlogy(n1, p) + _xlogy(n0, 1 - p)
     log_alt = _xlogy(n1, p_hat) + _xlogy(n0, 1 - p_hat)
-    lr = -2.0 * (log_null - log_alt)
+    lr = max(-2.0 * (log_null - log_alt), 0.0)
     return lr, float(stats.chi2.sf(lr, df=1))
 
 
-def lr_ind(violations: np.ndarray) -> tuple[float, float]:
+def transition_counts(
+    violations: np.ndarray, positions: np.ndarray | None = None
+) -> tuple[int, int, int, int]:
+    """Count first-order transitions (n00, n01, n10, n11).
+
+    Args:
+        violations: Binary violation indicator series (0/1), in time order.
+        positions: Optional integer position of each observation in the
+            original (full) daily series.  When the sample is a subset of
+            days (e.g. stress days only), only pairs of *consecutive*
+            trading days (positions differing by exactly 1) are counted;
+            otherwise two violations separated by a calm gap would be
+            treated as back-to-back and the clustering test would be biased.
+
+    Returns:
+        Tuple (n00, n01, n10, n11).
+    """
+    v = np.asarray(violations, dtype=int)
+    if len(v) < 2:
+        return 0, 0, 0, 0
+    prev, curr = v[:-1], v[1:]
+    if positions is not None:
+        pos = np.asarray(positions)
+        adjacent = (pos[1:] - pos[:-1]) == 1
+        prev, curr = prev[adjacent], curr[adjacent]
+    n00 = int(((prev == 0) & (curr == 0)).sum())
+    n01 = int(((prev == 0) & (curr == 1)).sum())
+    n10 = int(((prev == 1) & (curr == 0)).sum())
+    n11 = int(((prev == 1) & (curr == 1)).sum())
+    return n00, n01, n10, n11
+
+
+def lr_ind(
+    violations: np.ndarray, positions: np.ndarray | None = None
+) -> tuple[float, float]:
     """Independence test against first-order Markov violation clustering.
 
     Builds the 2x2 transition count matrix of the indicator series and
@@ -84,22 +118,20 @@ def lr_ind(violations: np.ndarray) -> tuple[float, float]:
 
     Args:
         violations: Binary violation indicator series (0/1).
+        positions: Optional positions in the full series; see
+            :func:`transition_counts`.
 
     Returns:
         Tuple (LR statistic, p-value) under chi-squared(1).
     """
-    v = np.asarray(violations, dtype=int)
-    if len(v) < 2:
+    n00, n01, n10, n11 = transition_counts(violations, positions)
+    total = n00 + n01 + n10 + n11
+    if total == 0:
         return np.nan, np.nan
-    prev, curr = v[:-1], v[1:]
-    n00 = int(((prev == 0) & (curr == 0)).sum())
-    n01 = int(((prev == 0) & (curr == 1)).sum())
-    n10 = int(((prev == 1) & (curr == 0)).sum())
-    n11 = int(((prev == 1) & (curr == 1)).sum())
 
     pi01 = n01 / (n00 + n01) if (n00 + n01) else 0.0
     pi11 = n11 / (n10 + n11) if (n10 + n11) else 0.0
-    pi = (n01 + n11) / (n00 + n01 + n10 + n11)
+    pi = (n01 + n11) / total
 
     log_null = _xlogy(n01 + n11, pi) + _xlogy(n00 + n10, 1 - pi)
     log_alt = (
@@ -108,23 +140,26 @@ def lr_ind(violations: np.ndarray) -> tuple[float, float]:
         + _xlogy(n11, pi11)
         + _xlogy(n10, 1 - pi11)
     )
-    lr = -2.0 * (log_null - log_alt)
-    lr = max(lr, 0.0)
+    lr = max(-2.0 * (log_null - log_alt), 0.0)
     return lr, float(stats.chi2.sf(lr, df=1))
 
 
-def christoffersen_tests(violations: np.ndarray, p: float) -> dict[str, float]:
+def christoffersen_tests(
+    violations: np.ndarray, p: float, positions: np.ndarray | None = None
+) -> dict[str, float]:
     """Run UC, IND and CC tests on one violation series.
 
     Args:
         violations: Binary violation indicator series (0/1).
         p: Stated violation probability.
+        positions: Optional positions in the full daily series so the
+            independence test only uses consecutive-day pairs.
 
     Returns:
         Dict of statistics and p-values for all three tests.
     """
     uc_stat, uc_p = lr_uc(violations, p)
-    ind_stat, ind_p = lr_ind(violations)
+    ind_stat, ind_p = lr_ind(violations, positions)
     cc_stat = uc_stat + ind_stat
     cc_p = float(stats.chi2.sf(cc_stat, df=2)) if np.isfinite(cc_stat) else np.nan
     return {
@@ -154,14 +189,19 @@ def run_all(panel: pd.DataFrame) -> pd.DataFrame:
     }
     for ticker in config.BANKS:
         for sample_label, mask in samples.items():
-            sub = panel[(panel["bank"] == ticker) & mask].sort_values("date")
+            bank = panel[panel["bank"] == ticker].sort_values("date")
+            bank_mask = mask.reindex(bank.index)
+            # Position of each row in the bank's full daily series, so the
+            # independence test ignores pairs separated by excluded days.
+            positions = np.arange(len(bank))[bank_mask.to_numpy()]
+            sub = bank[bank_mask.to_numpy()]
             if len(sub) < 30:
                 logger.warning(
                     "%s/%s: only %d observations, skipping", ticker, sample_label, len(sub)
                 )
                 continue
             p = float(sub["expected_rate"].mean())
-            res = christoffersen_tests(sub["violation"].to_numpy(), p)
+            res = christoffersen_tests(sub["violation"].to_numpy(), p, positions)
             for test, df_chi in [("UC", 1), ("IND", 1), ("CC", 2)]:
                 stat = res[f"lr_{test.lower()}"]
                 pval = res[f"p_{test.lower()}"]
