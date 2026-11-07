@@ -1,5 +1,7 @@
 # var-confidence-audit
 
+[![CI](https://github.com/rxj0102/var-confidence-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/rxj0102/var-confidence-audit/actions/workflows/ci.yml)
+
 **Do banks' disclosed VaR figures hold up?** This project audits the one-day
 trading Value-at-Risk figures that five large U.S. banks (JPM, GS, MS, BAC, C)
 publicly disclose in their quarterly 10-Q and annual 10-K SEC filings against
