@@ -48,10 +48,13 @@ def build(styles) -> list:
         f"Average excess violation rates are {mean_excess * 100:+.2f} percentage "
         f"points, and {n_reject} of {n_banks} banks reject conditional coverage "
         "at the 5% level, driven by pronounced violation clustering in "
-        "high-VIX regimes. Simple reimplemented models (historical simulation, "
-        "parametric, EWMA) match or beat disclosed figures, suggesting "
-        "disclosure-based backtests are a cheap, informative supervisory "
-        "complement."
+        "high-VIX regimes. A placebo threshold that keeps the market-cap "
+        "scaling but discards the disclosures clusters less for most banks, so "
+        "the independence rejections cannot be attributed to the banks' VaR "
+        "models; the disclosures do, however, respond to stress far more than a "
+        "constant threshold. Because the return-space level is calibrated to "
+        "each bank's own return quantile, coverage-level tests are not "
+        "evidence of bank calibration."
     )
 
     return [
