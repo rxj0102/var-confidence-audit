@@ -17,7 +17,7 @@ SSRN-ready research paper PDF plus an interactive Streamlit dashboard.
 
 Disclosed VaR is, on average, conservatively calibrated (unconditional
 coverage holds), **but** violations cluster in high-volatility regimes because
-quarterly-average disclosures adapt too slowly — so the Christoffersen
+quarterly-average disclosures adapt too slowly - so the Christoffersen
 independence and conditional-coverage tests reject even where the Kupiec
 level test does not.
 
@@ -93,12 +93,15 @@ streamlit run dashboard/app.py  # 9. interactive dashboard
 
 Or explore interactively in `notebooks/research.ipynb`.
 
-## Key findings (placeholder — regenerate from your run)
+## Hypotheses (not yet tested on the reported VaR data)
 
-- Unconditional coverage is broadly defensible, but **violations cluster** in
-  high-VIX regimes; conditional coverage rejects for most banks.
+These are what the study is built to test, not results. The reported-VaR tables need the SEC EDGAR scrape (`python data/scrape_edgar.py`), which has not been rerun since the fixes listed below, so no finding is claimed yet.
+
+- Unconditional coverage is broadly defensible, but violations cluster in high-VIX regimes, so conditional coverage rejects for most banks.
 - Stress-period violation rates are a multiple of calm-period rates.
-- Daily-updating EWMA matches or beats disclosed VaR on calibration.
+- A daily-updating EWMA matches or beats disclosed VaR on calibration.
+
+The figures below come from the last full run and predate those fixes.
 
 ![Violation rates](outputs/figures/violation_rates_bar.png)
 ![Christoffersen p-values](outputs/figures/christoffersen_pvalue_heatmap.png)
@@ -121,7 +124,7 @@ Under the Basel III internal-models approach, banks backtest one-day 99% VaR
 against the last 250 days of P&L. The **traffic-light system** assigns ≤ 4
 exceptions to the green zone, 5–9 to yellow (rising capital multiplier), and
 ≥ 10 to red (presumed model failure). That test checks only *unconditional*
-coverage; this project additionally audits *independence* of violations —
+coverage; this project additionally audits *independence* of violations -
 the dimension on which quarterly-average disclosures are weakest.
 
 ## Caveats
@@ -147,7 +150,7 @@ interpolated and flagged (`interpolated_flag`).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).
 
 ## Methodology fixes and testing
 
