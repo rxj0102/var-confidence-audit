@@ -19,3 +19,5 @@ jobs:
       # Tests only need the numerical stack (not streamlit/jupyter/reportlab).
       - run: pip install numpy pandas scipy matplotlib seaborn python-dotenv pytest
       - run: python -m pytest -q
+      - name: README findings match data/processed/
+        run: python scripts/render_readme.py --check
