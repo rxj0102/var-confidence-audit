@@ -150,7 +150,7 @@ Under the Basel III internal-models approach, banks backtest one-day 99% VaR
 against the last 250 days of P&L. The **traffic-light system** assigns ≤ 4
 exceptions to the green zone, 5–9 to yellow (rising capital multiplier), and
 ≥ 10 to red (presumed model failure). That test checks only *unconditional*
-coverage; this project additionally audits *independence* of violations —
+coverage; this project additionally audits *independence* of violations, 
 the dimension on which quarterly-average disclosures are weakest.
 
 ## Caveats
@@ -207,12 +207,12 @@ Citation metadata is in `CITATION.cff`. GitHub turns it into a Cite this reposit
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT: see [LICENSE](LICENSE).
 
 ## Methodology fixes and testing
 
 - **Independence test on subsamples.** The stress/calm Christoffersen tests previously treated violations on non-adjacent trading days as consecutive. Transitions are now counted only between consecutive trading days.
 - **Model backtests use loss-side violations** (`return < -VaR`). Counting `|return| > VaR` roughly doubles the violation rate of a correctly calibrated 99% model, so every reimplemented model used to look miscalibrated under Kupiec. The disclosed-VaR audit keeps its conservative absolute-return definition for the headline numbers; a `loss_violation` column and a `disclosed_loss_side` row in `model_comparison.csv` give the like-for-like version.
-- **Missing VIX** is no longer silently labelled "high" regime.
+- **Missing VIX** is no longer silently labelled *high* regime.
 - `pytest` covers Kupiec/Christoffersen statistics, the adjacency rule, VaR forecast timing (no look-ahead) and the violation definitions.
 - `model_comparison.csv`, `model_var_estimates.csv` and the `model_*` figures were regenerated on 2026-11-07 under the loss-side violation definition (for example, JPM historical simulation 99% violation rate fell from 3.4% to 2.1%). The reported-VaR tables (`violation_summary`, `kupiec_results`, `christoffersen_results`, `cross_bank_comparison`, `stress_amplification`, `methodology_anova`, `daily_violations`), their figures and the paper still predate the fixes: they need the SEC EDGAR scrape (`python data/scrape_edgar.py`), which could not run in the sandbox. Rerun steps 2 to 8 locally to refresh them.
