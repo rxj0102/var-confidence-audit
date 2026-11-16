@@ -1,10 +1,8 @@
 name: ci
-
 on:
   push:
     branches: [main]
   pull_request:
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -16,8 +14,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      # Tests only need the numerical stack (not streamlit/jupyter/reportlab).
-      - run: pip install numpy pandas scipy matplotlib seaborn python-dotenv pytest
+      - run: pip install -r requirements.txt
       - run: python -m pytest -q
-      - name: README findings match data/processed/
-        run: python scripts/render_readme.py --check
+      - name: Rerun the study and confirm the committed results reproduce
+        run: |
+          cp results/metrics.json /tmp/committed.json
+          python scripts/reproduce.py
+          python scripts/compare_metrics.py /tmp/committed.json results/metrics.json
+      - run: python scripts/render_readme.py --check
