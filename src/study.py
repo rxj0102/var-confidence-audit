@@ -109,11 +109,21 @@ def basel_zone(k: int, days: int) -> str:
     return "green" if scaled < 4.5 else ("yellow" if scaled < 9.5 else "red")
 
 
+def pooled_dispersion(d: pd.DataFrame) -> tuple[float, float, int]:
+    """dispersion() within each bank and series, summed. Across several banks, one rate for all
+    would count a bank that is simply more cautious than another as bunching in time."""
+    stat, df = 0.0, 0
+    for _, g in d.groupby(["bank", "series"]):
+        s, _, k = dispersion(g["exceptions"].to_numpy(float), g["days_used"].to_numpy(float), g["p"].to_numpy())
+        stat, df = stat + s, df + k
+    return stat, float(chi2.sf(stat, df)) if df > 0 else 1.0, df
+
+
 def summarize(d: pd.DataFrame) -> dict:
     obs, exp_ = int(d["exceptions"].sum()), float(d["expected"].sum())
     rows = list(d.itertuples())
     lr = [kupiec(r.exceptions, r.days_used, r.p) for r in rows]
-    stat, pd_, df = dispersion(d["exceptions"].to_numpy(float), d["days_used"].to_numpy(float), d["p"].to_numpy())
+    stat, pd_, df = pooled_dispersion(d)
     return {
         "years": int(len(d)), "first": int(d["year"].min()), "last": int(d["year"].max()),
         "observed": obs, "expected": exp_, "ratio": obs / exp_,
