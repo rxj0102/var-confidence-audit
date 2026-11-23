@@ -101,3 +101,28 @@ def test_stress_split_partitions_the_rows():
     s = study.stress_split(D)
     assert s["stress"]["bank_years"] + s["other"]["bank_years"] == len(D)
     assert s["stress"]["observed"] + s["other"]["observed"] == D["exceptions"].sum()
+
+
+def _frame(counts, p=0.01, days=252):
+    return pd.DataFrame({"bank": "X", "series": "primary", "exceptions": counts,
+                         "days_used": days, "p": p, "expected": p * days})
+
+
+def test_bunching_p_matches_the_normal_approximation_without_overdispersion():
+    # Counts equal to each year's expectation have no dispersion: phi floors at 1.
+    d = _frame([3, 2, 3, 2, 3, 2])
+    p, phi = study.p_allowing_for_bunching(d)
+    assert phi == 1.0
+    z = (d.exceptions.sum() - d.expected.sum()) / np.sqrt((d.days_used * d.p * (1 - d.p)).sum())
+    from scipy.stats import norm
+    assert p == pytest.approx(2 * norm.sf(abs(z)))
+
+
+def test_bunching_widens_the_p_value():
+    # Same total, once spread evenly and once bunched into two years.
+    even = _frame([1, 1, 1, 1, 1, 1, 1, 1])
+    bunched = _frame([0, 0, 0, 0, 0, 0, 4, 4])
+    p_even, _ = study.p_allowing_for_bunching(even)
+    p_bunched, phi = study.p_allowing_for_bunching(bunched)
+    assert phi > 3
+    assert p_bunched > p_even

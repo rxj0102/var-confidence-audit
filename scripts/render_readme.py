@@ -20,15 +20,15 @@ def headline(m: dict) -> str:
     g95, g99, s, b = m["groups"]["95%"], m["groups"]["99%"], m["stress"], m["blocks"]
     gs, ms, jpm, gsr = b["GS|primary|0.95"], b["MS|primary|0.95"], b["JPM|primary|0.95"], b["GS|regulatory|0.99"]
     checks = {
-        "95% VaRs are exceeded far less often than they should be": g95["ratio"] < 0.4 and g95["p"] < 1e-6,
-        "99% VaRs are exceeded less often overall": g99["ratio"] < 0.7 and g99["p"] < 0.01,
+        "95% VaRs are exceeded far less often than they should be": g95["ratio"] < 0.4 and g95["p_bunching"] < 1e-6,
+        "99% VaRs are exceeded less often overall": g99["ratio"] < 0.7 and g99["p_bunching"] < 0.05,
         "no bank-year has too many 95% exceptions": g95["years_too_many"] == 0,
         "99% exceptions run above expected in the stress years and well below in the others":
             s["99%"]["stress"]["ratio"] > 2 and s["99%"]["other"]["ratio"] < 0.4,
         "exceptions bunch in time for both groups": g95["dispersion_p"] < 1e-6 and g99["dispersion_p"] < 1e-6,
         "Goldman and Morgan Stanley run at about a sixth of the nominal rate": gs["ratio"] < 0.2 and ms["ratio"] < 0.2,
         "JPMorgan is closest among the 95% users": jpm["ratio"] > 0.5,
-        "Goldman's clean P&L series is not significantly off": gsr["p"] > 0.05,
+        "Goldman's clean P&L series is not significantly off": gsr["p_bunching"] > 0.05,
     }
     failed = [k for k, ok in checks.items() if not ok]
     if failed:
@@ -41,13 +41,14 @@ def headline(m: dict) -> str:
         f"too thin.** A 95% VaR should be exceeded on about 5% of days. Across the banks that use one, it was "
         f"exceeded {g95['observed']} times where {g95['expected']:.0f} were expected, and not one bank-year had "
         f"significantly too many. Goldman Sachs and Morgan Stanley run at about a sixth of the nominal rate. "
-        f"The 99% VaRs were exceeded {g99['observed']} times against {g99['expected']:.0f} expected. But the "
+        f"The 99% VaRs were exceeded {g99['observed']} times against {g99['expected']:.0f} expected (p = "
+        f"{g99['p_bunching']:.2f} once the bunching of exceptions in time is allowed for). But the "
         f"misses come together: in {', '.join(str(y) for y in d['stress_years'][:-1])} and "
         f"{d['stress_years'][-1]} the 99% models were exceeded {s['99%']['stress']['ratio']:.1f} times as often "
         f"as they should be, and in every other year {s['99%']['other']['ratio']:.2f} times. Part of the "
         f"caution is how revenue is measured. Goldman's second backtest, which drops intraday trading from the "
         f"P&L, is exceeded at {gsr['ratio']:.2f} of the 99% rate and is not significantly off (p = "
-        f"{gsr['p']:.2f})."
+        f"{gsr['p_bunching']:.2f})."
     )
 
 
@@ -55,20 +56,23 @@ def results(m: dict) -> str:
     d, b, g, s, ba = m["data"], m["blocks"], m["groups"], m["stress"], m["basel"]
     out = [f"{d['rows']} bank-years from {d['filings']} 10-K filings. Trading days are taken from the filing where "
            f"stated ({d['rows_with_stated_days']} rows) and set to {d['default_days']} otherwise. Expected is "
-           f"(1 minus confidence) times trading days. The p-value tests the total against expected, exactly. "
+           f"(1 minus confidence) times trading days. The exact p treats every day as independent; exceptions "
+           f"bunch in time (see below), so the p allowing for bunching scales the variance by the dispersion of the "
+           f"yearly counts (quasi-binomial) and is the one to read. "
            f"Kupiec counts are bank-years where the year alone rejects at 5%, in each direction.", "",
            "### By bank", "",
-           "| Bank and VaR | Years | Exceptions | Expected | Ratio | p | Years with too few | Years with too many | Years with none |",
-           "|---|---|---|---|---|---|---|---|---|"]
+           "| Bank and VaR | Years | Exceptions | Expected | Ratio | Exact p | p allowing for bunching | Years with too few | Years with too many | Years with none |",
+           "|---|---|---|---|---|---|---|---|---|---|"]
     for v in b.values():
         out.append(f"| {v['label']}, {v['confidence']:.0%}, {v['first']} to {v['last']} | {v['years']} | {v['observed']} | "
-                   f"{v['expected']:.1f} | {v['ratio']:.2f} | {pv(v['p'])} | {v['years_too_few']} | {v['years_too_many']} | "
-                   f"{v['years_zero']} |")
+                   f"{v['expected']:.1f} | {v['ratio']:.2f} | {pv(v['p'])} | {pv(v['p_bunching'])} | {v['years_too_few']} | "
+                   f"{v['years_too_many']} | {v['years_zero']} |")
     out += ["", "### By confidence level", "",
-            "| VaR | Bank-years | Exceptions | Expected | Ratio | p | Too few | Too many |", "|---|---|---|---|---|---|---|---|"]
+            "| VaR | Bank-years | Exceptions | Expected | Ratio | Exact p | p allowing for bunching | Too few | Too many |",
+            "|---|---|---|---|---|---|---|---|---|"]
     for k, v in g.items():
         out.append(f"| {k} | {v['years']} | {v['observed']} | {v['expected']:.1f} | {v['ratio']:.2f} | {pv(v['p'])} | "
-                   f"{v['years_too_few']} | {v['years_too_many']} |")
+                   f"{pv(v['p_bunching'])} | {v['years_too_few']} | {v['years_too_many']} |")
     out += ["", f"### Stress years ({', '.join(map(str, d['stress_years']))}) against the rest", "",
             "| VaR | Years | Bank-years | Exceptions | Expected | Ratio |", "|---|---|---|---|---|---|"]
     for k, v in s.items():
