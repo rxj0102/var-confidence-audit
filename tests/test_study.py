@@ -126,3 +126,13 @@ def test_bunching_widens_the_p_value():
     p_bunched, phi = study.p_allowing_for_bunching(bunched)
     assert phi > 3
     assert p_bunched > p_even
+
+
+def test_dispersion_across_banks_ignores_differences_in_level():
+    import pandas as pd
+    from src.study import pooled_dispersion
+    # two banks, each perfectly steady but at different rates: no bunching in time
+    d = pd.DataFrame({"bank": ["A"] * 4 + ["B"] * 4, "series": "primary",
+                      "exceptions": [2, 2, 2, 2, 20, 20, 20, 20], "days_used": 250, "p": 0.05})
+    stat, p, df = pooled_dispersion(d)
+    assert stat == 0 and df == 6

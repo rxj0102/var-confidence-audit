@@ -198,9 +198,9 @@
       "years_too_few": 43,
       "years_too_many": 0,
       "years_zero": 20,
-      "dispersion": 424.781,
-      "dispersion_p": 1.47015e-58,
-      "dispersion_df": 55,
+      "dispersion": 394.406,
+      "dispersion_p": 1.09604e-53,
+      "dispersion_df": 53,
       "max_year": 2021,
       "max_count": 20
     },
@@ -218,9 +218,9 @@
       "years_too_few": 23,
       "years_too_many": 3,
       "years_zero": 23,
-      "dispersion": 215.335,
-      "dispersion_p": 9.9962e-23,
-      "dispersion_df": 49,
+      "dispersion": 199.684,
+      "dispersion_p": 4.78522e-21,
+      "dispersion_df": 46,
       "max_year": 2007,
       "max_count": 14
     }
