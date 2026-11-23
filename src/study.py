@@ -17,12 +17,12 @@ Design, fixed before any test was computed:
 """
 from __future__ import annotations
 
-from math import exp, lgamma, log
+from math import exp, lgamma, log, sqrt
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.stats import chi2
+from scipy.stats import chi2, norm
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data" / "disclosures.csv"
@@ -85,6 +85,25 @@ def dispersion(obs: np.ndarray, n: np.ndarray, p: np.ndarray) -> tuple[float, fl
     return stat, float(chi2.sf(stat, df)), df
 
 
+def p_allowing_for_bunching(d: pd.DataFrame) -> tuple[float, float]:
+    """Two-sided p-value for total against expected when exceptions bunch in time.
+
+    The exact binomial p treats every day as independent. Yearly counts here vary several
+    times more than that allows (see dispersion), which makes the exact p far too small.
+    This scales the binomial variance by the Pearson dispersion factor phi, estimated
+    within each bank and series around its own average rate and pooled (quasi-binomial),
+    floored at 1, and uses the normal approximation. Returns (p, phi).
+    """
+    chi_sum, df_sum = 0.0, 0
+    for _, g in d.groupby(["bank", "series"]):
+        stat, _, df = dispersion(g["exceptions"].to_numpy(float), g["days_used"].to_numpy(float), g["p"].to_numpy())
+        chi_sum, df_sum = chi_sum + stat, df_sum + df
+    phi = max(1.0, chi_sum / df_sum) if df_sum > 0 else 1.0
+    var = float((d["days_used"] * d["p"] * (1 - d["p"])).sum()) * phi
+    z = (d["exceptions"].sum() - d["expected"].sum()) / sqrt(var)
+    return float(2 * norm.sf(abs(z))), float(phi)
+
+
 def basel_zone(k: int, days: int) -> str:
     scaled = k * 250 / days
     return "green" if scaled < 4.5 else ("yellow" if scaled < 9.5 else "red")
@@ -99,6 +118,7 @@ def summarize(d: pd.DataFrame) -> dict:
         "years": int(len(d)), "first": int(d["year"].min()), "last": int(d["year"].max()),
         "observed": obs, "expected": exp_, "ratio": obs / exp_,
         "p": binom_sum_two_sided(obs, d["days_used"].tolist(), d["p"].tolist()),
+        **dict(zip(("p_bunching", "phi"), p_allowing_for_bunching(d))),
         "years_below_expected": int((d["exceptions"] < d["expected"]).sum()),
         "years_too_few": int(sum(p < 0.05 and r.exceptions < r.expected for (_, p), r in zip(lr, rows))),
         "years_too_many": int(sum(p < 0.05 and r.exceptions > r.expected for (_, p), r in zip(lr, rows))),
